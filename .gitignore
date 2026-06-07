@@ -1,0 +1,11 @@
+firmware/build/
+firmware/sdkconfig
+firmware/dependencies.lock
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.swp
+*.swo
+.DS_Store
+.vscode/
