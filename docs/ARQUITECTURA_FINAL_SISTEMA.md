@@ -18,7 +18,7 @@ Este documento describe de manera profesional y completa la arquitectura hardwar
 - Rápida visualización de módulos y conexiones (incluir gráfico adjunto si es posible).
 
 **Resumen:**
-- Paneles solares → TP4056 ×2 → Baterías en SERIE (7.4V) → Alimentación directa a VIN ESP32, servos SG90 y LCD 1602 I2C.
+- Paneles solares → TP4056 → Batería (3.7V) → Elevador MT3608 (5.0V) → Alimentación a VIN ESP32, servos SG90 y LCD 1602 I2C.
 - ESP32 controla servos, captura datos (voltaje solar/batería, LDR), maneja WiFi y visualización LCD.
 - Interfaz a la nube y bot Telegram.
 - Daemon PC opcional interactúa por WiFi/LAN.
@@ -27,23 +27,22 @@ Este documento describe de manera profesional y completa la arquitectura hardwar
 
 ## 3. ARQUITECTURA DE ENERGÍA Y CONEXIONES
 ### 3.1. Entradas y distribución de potencia
-- **Paneles solares:** 2× 5.5V 100mA conectados en paralelo; alimentan y recargan dos baterías independientes.
-- **Baterías:** 2× 3.7V 2200mAh EN SERIE (7.4V total), cargadas por TP4056 individual.
-- **Sin reguladores de voltaje:** Todo el sistema se alimenta directamente desde la salida serie de las baterías (7.4V) al pin VIN del ESP32 y periféricos. Esto reduce costo, complejidad y dependencia de componentes.
-- **Divisores resistivos:** Medición de voltajes con 2× (10kΩ + 10kΩ) y capacitor de 1µF en ADC (mejor estabilidad).
+- **Paneles solares:** 1 o 2 paneles 5.5V 100mA conectados en paralelo al TP4056.
+- **Baterías:** 1× 3.7V 2200mAh, cargada por TP4056.
+- **Elevador de Voltaje:** Módulo MT3608 Step-Up ajustado a 5.0V para alimentar servos, LCD y el ESP32 (vía pin VIN).
+- **Divisores resistivos:** Medición de voltajes con factor 1/3 (R1=20kΩ, R2=10kΩ usando resistencias de 10kΩ).
 
 ### 3.2. Conexión de componentes
 - **ESP32:**
    - GPIOs a servos (PWM), LCD (I2C), LDRs, divisores resistivos.
-   - Alimentación por VIN (7.4V directo desde baterías serie).
+   - Alimentación por VIN (5.0V desde MT3608).
 - **Servos / LCD:**
-   - Alimentación directa desde VIN (7.4V), utilizando el regulador interno del ESP32 para 5V/3.3V según corresponda.
+   - Alimentación directa (5.0V desde MT3608).
 - **TP4056:**
-   - Uno a cada batería; su salida conecta a la arquitectura serie.
+   - Entrada desde paneles, salida hacia batería y MT3608.
 
 ### 3.3. Resumen de protecciones y filtrados
-- Sin capacitores de filtrado en alimentación (se eliminan para reducir componentes).
-- ÚNICAMENTE capacitor 1µF en cada entrada ADC para reducir ruido en medición de voltaje.
+- Sin capacitores de filtrado en alimentación ni en ADC (se eliminan para reducir componentes, compensado por software).
 - Sin uso de módulos FZ0430 (costosos, difíciles de conseguir).
 
 ---
@@ -63,24 +62,24 @@ Este documento describe de manera profesional y completa la arquitectura hardwar
 ---
 
 ## 5. LIMITACIONES Y MITIGACIONES
-- **Sin FZ0430:** Precisión/estabilidad garantizada con divisores resistivos (10kΩ + 10kΩ) + filtrado por capacitor 1µF en ADC y promedio software.
-- **Sin reguladores externos:** Riesgo de brownout si ambos servos, WiFi y LCD operan a máxima demanda simultáneamente. Mitigado por software: secuencia de movimientos (máximo un servo a la vez), monitoreo de voltaje, alertas y reducción de actividad ante baja tensión.
-- **Capacidad de baterías:** 2200 mAh por celda, suficiente para operación típica; autonomía variable según clima y frecuencia de movimiento.
+- **Sin FZ0430:** Precisión/estabilidad garantizada con divisores resistivos (factor 1/3) + promedio software.
+- **Corriente máxima del MT3608:** Riesgo de caída de tensión si ambos servos, WiFi y LCD operan a máxima demanda simultáneamente. Mitigado por software: secuencia de movimientos (máximo un servo a la vez), monitoreo de voltaje, alertas.
+- **Capacidad de batería:** 2200 mAh en una celda, suficiente para operación típica; escalable poniendo una segunda batería en paralelo en el futuro.
 - **Daño potencial por sobrecorriente:** Se mitiga con control de software (watchdog, limitación de PWM) y fusible térmico opcional.
-- **Ruido ADC sin filtros en alimentación:** Pequeñas oscilaciones en medición corregidas con promedio software y capacitor 1µF dedicado.
+- **Ruido ADC sin filtros físicos:** Pequeñas oscilaciones en medición corregidas con un agresivo promedio software (30 muestras).
 
 ---
 
 ## 6. LISTA DE COMPONENTES FINAL
 1. ESP32-DEVKIT V1
 2. Servos SG90 ×2
-3. Paneles solares 5.5V / 100mA ×2
-4. TP4056 ×2
-5. Baterías Li-ion 3.7V 2200mAh ×2
-6. LCD 1602 I2C
-7. Fotoresistencias (LDR) ×4
-8. Resistencias 10kΩ ×8 (divisores)
-9. Capacitores 1µF ×2 (solo en ADC)
+3. Paneles solares 5.5V / 100mA (1 o 2 en paralelo)
+4. TP4056 ×1
+5. Batería Li-ion 3.7V 2200mAh ×1
+6. Módulo Elevador MT3608 (Step-Up) ×1
+7. LCD 1602 I2C
+8. Fotoresistencias (LDR) ×4
+9. Resistencias 10kΩ ×10 (divisores, pull-down)
 10. Cables, protoboard, soportes y PCB
 
 ---

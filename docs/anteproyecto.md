@@ -45,24 +45,24 @@ La radiación solar no es uniforme durante el día. Los paneles solares fijos ca
   Microcontrolador principal con WiFi/Bluetooth integrado.
 - **Dos servomotores SG90**  
   Control de orientación en ejes azimut y elevación.
-- **Dos paneles solares de 5.5 V / 100 mA**  
-  Proveen energía para carga de baterías.
-- **Dos baterías Li-ion recargables 3.7 V 2200 mAh**  
-  **Conectadas en serie** para suministrar 7.4 V directo al pin VIN del ESP32 y alimentar todos los periféricos (servos, LCD, etc.).
-- **Dos módulos TP4056**  
-  Uno para cada batería, recarga independiente y protección.
+- **Un panel solar de 5.5 V / 100 mA** (o dos en paralelo para mayor carga)
+  Provee energía para carga de batería.
+- **Una batería Li-ion recargable 3.7 V 2200 mAh**  
+  Fuente de almacenamiento principal.
+- **Un módulo TP4056**  
+  Recarga y protección de la batería Li-ion.
+- **Un módulo Step-Up (Boost) MT3608**  
+  Eleva el voltaje de la batería de 3.7 V a **5.0 V estables** para alimentar el pin VIN del ESP32, los servos y la LCD.
 - **Display LCD 1602 I2C**  
   Visualización de variables críticas y alertas.
 - **Sensores LDR (fotoresistores)**  
   Cuatro unidades dispuestas de forma diferencial para detección direccional de luz.
-- **Divisores resistivos (10kΩ + 10kΩ)**  
-  Para medición segura de voltajes de baterías y paneles por ADC.
-- **Capacitor de 1 µF**  
-  ÚNICAMENTE en la entrada del ADC para estabilidad de lectura de voltaje (no se usan filtros de potencia ni desacoples en alimentación).
+- **Divisores resistivos (R1=20kΩ, R2=10kΩ)**  
+  Factor de 1/3 (usando 3 resistencias de 10kΩ por divisor) para medición segura de voltajes por ADC sin quemar el ESP32.
 - **Cables, soportes, PCB prototipo**  
   Integración mecánica y eléctrica básica.
-- **Sin reguladores de voltaje**  
-  Todo el sistema es alimentado directamente por las baterías conectadas en serie para minimizar complejidad, costo y dependencia de componentes difíciles de conseguir.
+- **Filtrado por Software**  
+  Las lecturas de ADC se estabilizan mediante promedio móvil (30 muestras) en FreeRTOS. No se usan capacitores físicos.
 
 ---
 
@@ -102,13 +102,13 @@ La radiación solar no es uniforme durante el día. Los paneles solares fijos ca
 |---|-----------------------------|----------|------------------------|-------------------------------------------------|
 | 1 | ESP32-DEVKIT V1             | 1        | WiFi, FreeRTOS         | Control global                                  |
 | 2 | Servo SG90                  | 2        | 180°                   | Movimiento en 2 ejes                            |
-| 3 | Panel solar                 | 2        | 5.5 V / 100 mA         | Fuente de energía solar                         |
-| 4 | TP4056                      | 2        | Carga/protección Li-ion| Recarga segura y protección                     |
-| 5 | Batería Li-ion 3.7 V 2200 mAh| 2       | 18650, serie           | Banco energético principal                      |
-| 6 | LCD 1602 I2C                | 1        | PCF8574                | Visualización local (estado, alertas)           |
-| 7 | Fotoresistores (LDR)        | 4        | ~1 kΩ a pleno sol      | Sensado de luz                                  |
-| 8 | Resistencias 10 kΩ          | 8        | 1/4W                   | Divisor de voltaje para ADC                     |
-| 9 | Capacitor 1 µF              | 2        | Cerámico, en ADC       | ÚNICO filtrado (solo en medición)               |
+| 3 | Panel solar                 | 1-2      | 5.5 V / 100 mA         | Fuente de energía solar                         |
+| 4 | TP4056                      | 1        | Carga/protección Li-ion| Recarga segura y protección                     |
+| 5 | Batería Li-ion 3.7 V 2200 mAh| 1       | 18650                  | Banco energético principal                      |
+| 6 | Módulo MT3608 (Step-Up)     | 1        | Elevador Boost a 5.0V  | Provee voltaje estable a ESP32 y Servos         |
+| 7 | LCD 1602 I2C                | 1        | PCF8574                | Visualización local (estado, alertas)           |
+| 8 | Fotoresistores (LDR)        | 4        | ~1 kΩ a pleno sol      | Sensado de luz                                  |
+| 9 | Resistencias 10 kΩ          | 10       | 1/4W                   | Divisor de voltaje (factor 1/3) para ADC        |
 |10 | Cable protoboard, soportes   | -        |                        | Integración y montaje                           |
 
 ---
@@ -117,9 +117,8 @@ La radiación solar no es uniforme durante el día. Los paneles solares fijos ca
 
 | Restricción/Riesgo                         | Descripción/Impacto                       | Mitigación o Justificación                   |
 |--------------------------------------------|-------------------------------------------|---------------------------------------------|
-| **Sin regulación de voltaje dedicada**     | Posibles resets, fluctuaciones, brownout   | Secuencia de movimiento (un servo por vez), alertas software, monitoreo y reducción de movimientos ante baja tensión. Documentación explícita al usuario. |
-| **Corriente total limitada (pico/pico)**   | Si ambos servos, WiFi y LCD demandan simultáneamente, posible caída de tensión. | Control en el firmware: nunca activar ambos servos a máxima demanda conjunta. Sensado y reacción temprana alojado en el firmware.|
-| **Ruido ADC sin filtros en alimentación**  | Pequeñas oscilaciones en medición          | Promedio software, único capacitor 1 µF en ADC, pruebas de calibración específica.|
+| **Corriente pico del módulo MT3608**       | Posibles fluctuaciones si ambos servos demandan alta corriente. | Secuencia de movimiento (un servo por vez), limitación por software. El MT3608 soporta hasta 2A, suficiente para SG90s controlados. |
+| **Ruido ADC sin filtros físicos**          | Pequeñas oscilaciones en medición de voltaje| Promedio de software agresivo (30 muestras cada 50ms) absorbe el ruido eficientemente. |
 | **Carga ineficiente en días nublados**     | Energía diaria limitada                   | Monitoreo cloud, notificaciones por Telegram, optimización futura por software. |
 | **Integración daemon PC es opcional**      | No afecta autonomía del sistema            | 100% funcionamiento autónomo aun sin PC.     |
 
