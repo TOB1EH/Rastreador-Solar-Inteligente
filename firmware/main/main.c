@@ -4,61 +4,30 @@
 #include "esp_log.h"
 #include "power_monitor.h"
 #include "ldr_sensor.h"
-#include "servo_motor.h"
 
-static const char *TAG = "SOLAR_TRACKER";
-
-#define TRACKER_PERIOD_MS       100
-#define BROWNOUT_VOLTAGE_THRESH 6.0f
-#define ANGLE_STEP               2
-#define ANGLE_MIN                 0
-#define ANGLE_MAX               180
-
-static int current_az = 90;
-static int current_el = 90;
-
-static void clamp_angle(int *angle) {
-    if (*angle < ANGLE_MIN) *angle = ANGLE_MIN;
-    if (*angle > ANGLE_MAX) *angle = ANGLE_MAX;
-}
-
-static void solar_tracker_task(void *pvParameters) {
-    ESP_LOGI(TAG, "Tracker task started");
-    while (1) {
-        int az_err = 0, el_err = 0;
-        ldr_sensor_get_errors(&az_err, &el_err);
-
-        float vbat = power_monitor_get_battery_voltage();
-        bool low_battery = (vbat < BROWNOUT_VOLTAGE_THRESH);
-
-        if (az_err != 0 && !low_battery) {
-            current_az += (az_err > 0) ? -ANGLE_STEP : ANGLE_STEP;
-            clamp_angle(&current_az);
-            servo_motor_set_angle(SERVO_AXIS_AZIMUT, current_az);
-        }
-
-        if (el_err != 0 && !low_battery) {
-            current_el += (el_err > 0) ? -ANGLE_STEP : ANGLE_STEP;
-            clamp_angle(&current_el);
-            servo_motor_set_angle(SERVO_AXIS_ELEVATION, current_el);
-        }
-
-        if (az_err != 0 || el_err != 0) {
-            ESP_LOGI(TAG, "az=%d el=%d | az_err=%d el_err=%d | bat=%.2fV",
-                     current_az, current_el, az_err, el_err, vbat);
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(TRACKER_PERIOD_MS));
-    }
-}
+static const char *TAG = "LDR_TEST";
 
 void app_main(void) {
-    ESP_LOGI(TAG, "Rastreador Solar Inteligente - Iniciando...");
+    ESP_LOGI(TAG, "=== TEST DE SENSORES LDR ===");
+    ESP_LOGI(TAG, "Conecta 4 LDRs en GPIO 32, 33, 36, 39");
+    ESP_LOGI(TAG, "Tapa cada uno para verificar que se detectan");
+
     power_monitor_init();
     adc_oneshot_unit_handle_t adc = power_monitor_get_adc_handle();
     ldr_sensor_init(adc);
-    servo_motor_init();
 
-    xTaskCreatePinnedToCore(solar_tracker_task, "tracker", 4096, NULL, 5, NULL, 1);
-    ESP_LOGI(TAG, "Sistema listo");
+    ESP_LOGI(TAG, "Leyendo LDRs cada 500ms...");
+
+    while (1) {
+        int top = 0, bottom = 0, left = 0, right = 0;
+        int az_err = 0, el_err = 0;
+
+        ldr_sensor_get_raw_values(&top, &bottom, &left, &right);
+        ldr_sensor_get_errors(&az_err, &el_err);
+
+        ESP_LOGI(TAG, "T:%4d B:%4d L:%4d R:%4d | az_err:%+4d el_err:%+4d",
+                 top, bottom, left, right, az_err, el_err);
+
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
 }
