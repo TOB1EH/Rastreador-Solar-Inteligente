@@ -1,0 +1,21 @@
+menu "WiFi Logger Configuration"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default "mi_red_wifi"
+        help
+            SSID (nombre) de la red WiFi a la que se conectara el ESP32.
+
+    config WIFI_PASSWORD
+        string "WiFi Password"
+        default "mi_contraseña"
+        help
+            Contraseña de la red WiFi.
+
+    config UDP_BROADCAST_PORT
+        int "UDP Port"
+        default 8080
+        help
+            Puerto UDP donde el ESP32 escuchara las peticiones del daemon de Python.
+
+endmenu
