@@ -52,7 +52,56 @@ Rastreador_Solar_Inteligente/
 
 `main/CMakeLists.txt` must `REQUIRES` all components used (currently missing this — needs `power_monitor ldr_sensor servo_motor`).
 
+## LDR → Servo integration guide (for teammate)
+
+### Init order in `app_main`
+```c
+power_monitor_init();
+ldr_sensor_init(power_monitor_get_adc_handle());   // share ADC_UNIT_1
+servo_motor_init();
+udp_logger_init();
+xTaskCreate(udp_logger_server_task, "udp_server", 4096, NULL, 5, NULL);
+```
+
+### Tracking task pattern
+```c
+void tracker_task(void *pv) {
+    int az = 90, el = 45;  // tracked positions
+    servo_motor_set_angle(SERVO_AXIS_AZIMUT, az);
+    servo_motor_set_angle(SERVO_AXIS_ELEVATION, el);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    while (1) {
+        int az_err, el_err;
+        ldr_sensor_get_errors(&az_err, &el_err);
+        // Move ONE servo at a time (brownout prevention):
+        if (az_err != 0) {
+            az += (az_err > 0) ? -1 : 1;
+            if (az < 0) az = 0; if (az > 180) az = 180;
+            servo_motor_set_angle(SERVO_AXIS_AZIMUT, az);
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        if (el_err != 0) {
+            el += (el_err > 0) ? 1 : -1;
+            if (el < 0) el = 0; if (el > 90) el = 90;  // panel limit
+            servo_motor_set_angle(SERVO_AXIS_ELEVATION, el);
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
+xTaskCreatePinnedToCore(tracker_task, "tracker", 4096, NULL, 5, NULL, 1);
+```
+
+### Key constraints
+- **ADC handle**: `ldr_sensor_init(handle)` receives it from `power_monitor_get_adc_handle()`
+- **Brownout**: move one servo at a time, 100ms gap between them
+- **Elevation limit**: panel mechanically limited 0–90° (clamp `el`)
+- **Deadzone**: `DEADZONE_THRESHOLD = 200` raw (~5%), errors below it are ignored
+- **Step**: `LDR_STEP_DEG = 1` degree per cycle, adjust for aggressiveness
+- **main/CMakeLists.txt** already includes `ldr_sensor servo_motor power_monitor udp_logger` in REQUIRES
+
 ## Deferred features (Etapa 2+)
 - LCD 1602 I2C display (component not created yet)
 - Cloud comm (Supabase + Telegram bot, `cloud_comm` component pending)
-- PC daemon (Python/Node, in `daemon_pc/`)
+- Web Dashboard (HTTP server, `web_dashboard` component pending)
+- Telegram Bot (`telegram_bot` component pending)
