@@ -2,67 +2,78 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
-#include "servo_motor.h"
 #include "power_monitor.h"
+#include "ldr_sensor.h"
+#include "servo_motor.h"
 #include "udp_logger.h"
 
-static const char *TAG = "SERVO_BATT_TEST";
+static const char *TAG = "SOLAR_TRACKER";
+
+// Posiciones actuales de los servos
+static int current_az = 90;
+static int current_el = 45;
+
+// Cuántos grados mover por cada ciclo de corrección
+#define LDR_STEP_DEG 1
+
+// Límites mecánicos
+#define AZ_MIN 0
+#define AZ_MAX 180
+#define EL_MIN 0
+#define EL_MAX 90
+
+void tracker_task(void *pv) {
+    ESP_LOGI(TAG, "Tracker iniciado. Posición inicial → Az: %d°, El: %d°", current_az, current_el);
+    servo_motor_set_angle(SERVO_AXIS_AZIMUT, current_az);
+    servo_motor_set_angle(SERVO_AXIS_ELEVATION, current_el);
+    vTaskDelay(pdMS_TO_TICKS(2000));
+
+    while (1) {
+        int az_err, el_err;
+        ldr_sensor_get_errors(&az_err, &el_err);
+
+        if (az_err != 0 || el_err != 0) {
+            ESP_LOGI(TAG, "Errores → az_err:%+4d el_err:%+4d | moviendo...", az_err, el_err);
+
+            // Mover UN servo a la vez (anti-brownout)
+            if (az_err != 0) {
+                if (az_err > 0) current_az -= LDR_STEP_DEG;
+                else            current_az += LDR_STEP_DEG;
+                if (current_az < AZ_MIN) current_az = AZ_MIN;
+                if (current_az > AZ_MAX) current_az = AZ_MAX;
+                servo_motor_set_angle(SERVO_AXIS_AZIMUT, current_az);
+                vTaskDelay(pdMS_TO_TICKS(80));
+            }
+
+            if (el_err != 0) {
+                if (el_err > 0) current_el += LDR_STEP_DEG;
+                else            current_el -= LDR_STEP_DEG;
+                if (current_el < EL_MIN) current_el = EL_MIN;
+                if (current_el > EL_MAX) current_el = EL_MAX;
+                servo_motor_set_angle(SERVO_AXIS_ELEVATION, current_el);
+                vTaskDelay(pdMS_TO_TICKS(80));
+            }
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+}
 
 void app_main(void) {
-    ESP_LOGI(TAG, "Iniciando prueba de servos (0-180 y 0-90) con monitor UDP en paralelo...");
-    
-    // Inicializa el sistema de energía
+    ESP_LOGI(TAG, "=== RASTREADOR SOLAR INTELIGENTE ===");
+
     power_monitor_init();
-
-    // Inicializa la comunicación WiFi y el servidor UDP
-    udp_logger_init();
-    
-    // Inicia la tarea del servidor UDP para que el daemon en PC funcione
-    xTaskCreate(udp_logger_server_task, "udp_server", 4096, NULL, 5, NULL);
-
-    // Inicializa el control de los servos
+    ldr_sensor_init(power_monitor_get_adc_handle());
     servo_motor_init();
-    
-    // Centrar ambos servos de forma segura inicialmente
-    servo_motor_set_angle(SERVO_AXIS_AZIMUT, 90);
-    servo_motor_set_angle(SERVO_AXIS_ELEVATION, 45);
-    vTaskDelay(pdMS_TO_TICKS(2000)); // Esperar 2 segundos para estabilizar
-    
+    udp_logger_init();
+    xTaskCreate(udp_logger_server_task, "udp_server", 4096, NULL, 5, NULL);
+    xTaskCreatePinnedToCore(tracker_task, "tracker", 4096, NULL, 5, NULL, 1);
+
     while (1) {
-        ESP_LOGI(TAG, "Sweep: Ida Azimut (0->180)...");
-        for (int ang = 0; ang <= 180; ang += 1) { 
-            servo_motor_set_angle(SERVO_AXIS_AZIMUT, ang);
-            vTaskDelay(pdMS_TO_TICKS(50)); // 50ms de pausa por grado (mucho menos estrés)
-        }
-        
-        ESP_LOGI(TAG, "Pausa entre ejes...");
-        vTaskDelay(pdMS_TO_TICKS(1000));
-
-        ESP_LOGI(TAG, "Sweep: Ida Elevación (0->90)...");
-        for (int ang = 0; ang <= 90; ang += 1) { 
-            servo_motor_set_angle(SERVO_AXIS_ELEVATION, ang);
-            vTaskDelay(pdMS_TO_TICKS(50)); // 50ms de pausa por grado
-        }
-        
-        ESP_LOGI(TAG, "Pausa en el extremo...");
-        vTaskDelay(pdMS_TO_TICKS(1500));
-
-        ESP_LOGI(TAG, "Sweep: Vuelta Elevación (90->0)...");
-        for (int ang = 90; ang >= 0; ang -= 1) {
-            servo_motor_set_angle(SERVO_AXIS_ELEVATION, ang);
-            vTaskDelay(pdMS_TO_TICKS(50));
-        }
-
-        ESP_LOGI(TAG, "Pausa entre ejes...");
-        vTaskDelay(pdMS_TO_TICKS(1000));
-
-        ESP_LOGI(TAG, "Sweep: Vuelta Azimut (180->0)...");
-        for (int ang = 180; ang >= 0; ang -= 1) {
-            servo_motor_set_angle(SERVO_AXIS_AZIMUT, ang);
-            vTaskDelay(pdMS_TO_TICKS(50));
-        }
-        
-        ESP_LOGI(TAG, "Pausa en el origen...");
-        vTaskDelay(pdMS_TO_TICKS(1500));
+        float v_bat = power_monitor_get_battery_voltage();
+        float v_sol = power_monitor_get_solar_voltage();
+        ESP_LOGI(TAG, "Monitor: Batería: %.2f V | Panel Solar: %.2f V | Az:%d° El:%d°",
+                 v_bat, v_sol, current_az, current_el);
+        vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
