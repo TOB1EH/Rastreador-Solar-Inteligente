@@ -11,6 +11,11 @@ static const char *TAG = "POWER_MONITOR";
 // Definición de Pines. Usamos ADC1 que no interfiere con el Wi-Fi
 #define ADC_CHAN_BATTERY ADC_CHANNEL_6 // Corresponde al GPIO34 en ESP32
 #define ADC_CHAN_SOLAR   ADC_CHANNEL_7 // Corresponde al GPIO35 en ESP32
+// Canales de los LDR (deben coincidir con ldr_sensor.c)
+#define ADC_CHAN_LDR_TL ADC_CHANNEL_0 // GPIO 36
+#define ADC_CHAN_LDR_TR ADC_CHANNEL_5 // GPIO 33
+#define ADC_CHAN_LDR_BL ADC_CHANNEL_4 // GPIO 32
+#define ADC_CHAN_LDR_BR ADC_CHANNEL_3 // GPIO 39
 
 // Configuración del filtro por software
 #define SAMPLES_COUNT 30
@@ -66,9 +71,33 @@ static void power_monitor_task(void *pvParameters) {
     while (1) {
         int bat_raw, sol_raw;
         
-        // 1. Leer ADC
-        ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC_CHAN_BATTERY, &bat_raw));
-        ESP_ERROR_CHECK(adc_oneshot_read(adc1_handle, ADC_CHAN_SOLAR, &sol_raw));
+        // 1. Leer ADC con reintentos (evita crash si LDR reconfigura ADC)
+        esp_err_t ret;
+        int retries;
+        retries = 3;
+        do {
+            ret = adc_oneshot_read(adc1_handle, ADC_CHAN_BATTERY, &bat_raw);
+            if (ret != ESP_OK) {
+                ESP_LOGW(TAG, "Battery ADC timeout, retrying...");
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
+        } while (ret != ESP_OK && retries-- > 0);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Battery ADC failed after retries");
+            bat_raw = 0;
+        }
+        retries = 3;
+        do {
+            ret = adc_oneshot_read(adc1_handle, ADC_CHAN_SOLAR, &sol_raw);
+            if (ret != ESP_OK) {
+                ESP_LOGW(TAG, "Solar ADC timeout, retrying...");
+                vTaskDelay(pdMS_TO_TICKS(10));
+            }
+        } while (ret != ESP_OK && retries-- > 0);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "Solar ADC failed after retries");
+            sol_raw = 0;
+        }
         // 2. Insertar en el Buffer Circular
         bat_raw_buffer[buffer_index] = bat_raw;
         sol_raw_buffer[buffer_index] = sol_raw;
@@ -118,6 +147,11 @@ void power_monitor_init(void) {
     };
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHAN_BATTERY, &config));
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHAN_SOLAR, &config));
+    // Configurar canales de los LDR para evitar reconexión mientras las tasks corren
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHAN_LDR_TL, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHAN_LDR_TR, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHAN_LDR_BL, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, ADC_CHAN_LDR_BR, &config));
     do_calibration = adc_calibration_init(ADC_UNIT_1, ADC_ATTEN_DB_12, &adc1_cali_handle);
     // Arrancar la tarea en el Core 1 (prioridad intermedia)
     xTaskCreatePinnedToCore(power_monitor_task, "power_monitor_task", 4096, NULL, 5, NULL, 1);

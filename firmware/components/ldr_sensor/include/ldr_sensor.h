@@ -18,6 +18,9 @@ void ldr_sensor_get_errors(int *azimut_err, int *elevacion_err);
 // Devuelve los valores crudos promediados (útil para el Telegram/Dashboard)
 void ldr_sensor_get_raw_values(int *top, int *bottom, int *left, int *right);
 
+// Devuelve los valores individuales de cada LDR (para weighted-angle tracking)
+void ldr_sensor_get_individual(int *tl, int *tr, int *bl, int *br);
+
 #ifdef __cplusplus
 }
 #endif
