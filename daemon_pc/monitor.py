@@ -2,7 +2,7 @@ import socket
 import time
 
 # Configuración
-ESP32_IP = "192.168.18.142"  # IP del ESP32 (verificar en log serial si cambia)
+ESP32_IP = "192.168.18.149"  # IP del ESP32 (verificar en log serial si cambia)
 UDP_PORT = 8080            # Mismo puerto que configuramos en el ESP32
 
 def main():

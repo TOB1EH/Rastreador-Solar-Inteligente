@@ -3,77 +3,73 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "power_monitor.h"
-#include "ldr_sensor.h"
 #include "servo_motor.h"
 #include "udp_logger.h"
+#include "ldr_sensor.h"
 
 static const char *TAG = "SOLAR_TRACKER";
 
-// Posiciones actuales de los servos
-static int current_az = 90;
-static int current_el = 45;
+#define BATTERY_MIN_MOVE_V 3.4f
+#define ANGLE_STEP 3
+#define TRACK_INTERVAL_MS 50
+#define HYST_START 350
+#define HYST_STOP 150
 
-// Cuántos grados mover por cada ciclo de corrección
-#define LDR_STEP_DEG 1
-
-// Límites mecánicos
-#define AZ_MIN 0
-#define AZ_MAX 180
-#define EL_MIN 0
-#define EL_MAX 90
+static int current_azimuth = 90;
+static int moving_dir = 0;
 
 void tracker_task(void *pv) {
-    ESP_LOGI(TAG, "Tracker iniciado. Posición inicial → Az: %d°, El: %d°", current_az, current_el);
-    servo_motor_set_angle(SERVO_AXIS_AZIMUT, current_az);
-    servo_motor_set_angle(SERVO_AXIS_ELEVATION, current_el);
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    ESP_LOGI(TAG, "Iniciando tracker por LDR (solo azimut)...");
+    vTaskDelay(pdMS_TO_TICKS(1000));
 
     while (1) {
+        float v_bat = power_monitor_get_battery_voltage();
         int az_err, el_err;
         ldr_sensor_get_errors(&az_err, &el_err);
 
-        if (az_err != 0 || el_err != 0) {
-            ESP_LOGI(TAG, "Errores → az_err:%+4d el_err:%+4d | moviendo...", az_err, el_err);
+        if (v_bat >= BATTERY_MIN_MOVE_V) {
+            int prev = current_azimuth;
 
-            // Mover UN servo a la vez (anti-brownout)
-            if (az_err != 0) {
-                if (az_err > 0) current_az -= LDR_STEP_DEG;
-                else            current_az += LDR_STEP_DEG;
-                if (current_az < AZ_MIN) current_az = AZ_MIN;
-                if (current_az > AZ_MAX) current_az = AZ_MAX;
-                servo_motor_set_angle(SERVO_AXIS_AZIMUT, current_az);
-                vTaskDelay(pdMS_TO_TICKS(80));
+            if (moving_dir == 0) {
+                if (az_err > HYST_START) moving_dir = -1;
+                else if (az_err < -HYST_START) moving_dir = 1;
+            } else if (moving_dir == -1) {
+                if (az_err <= HYST_STOP) moving_dir = 0;
+                else current_azimuth -= ANGLE_STEP;
+            } else if (moving_dir == 1) {
+                if (az_err >= -HYST_STOP) moving_dir = 0;
+                else current_azimuth += ANGLE_STEP;
             }
 
-            if (el_err != 0) {
-                if (el_err > 0) current_el += LDR_STEP_DEG;
-                else            current_el -= LDR_STEP_DEG;
-                if (current_el < EL_MIN) current_el = EL_MIN;
-                if (current_el > EL_MAX) current_el = EL_MAX;
-                servo_motor_set_angle(SERVO_AXIS_ELEVATION, current_el);
-                vTaskDelay(pdMS_TO_TICKS(80));
+            if (current_azimuth < 0) { current_azimuth = 0; moving_dir = 0; }
+            if (current_azimuth > 180) { current_azimuth = 180; moving_dir = 0; }
+
+            if (current_azimuth != prev) {
+                servo_motor_set_angle(SERVO_AXIS_AZIMUT, current_azimuth);
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(500));
+        vTaskDelay(pdMS_TO_TICKS(TRACK_INTERVAL_MS));
     }
 }
 
 void app_main(void) {
-    ESP_LOGI(TAG, "=== RASTREADOR SOLAR INTELIGENTE ===");
+    ESP_LOGI(TAG, "=== RASTREADOR SOLAR INTELIGENTE (tracking LDR) ===");
 
     power_monitor_init();
-    ldr_sensor_init(power_monitor_get_adc_handle());
     servo_motor_init();
+    ldr_sensor_init(power_monitor_get_adc_handle());
     udp_logger_init();
     xTaskCreate(udp_logger_server_task, "udp_server", 4096, NULL, 5, NULL);
-    xTaskCreatePinnedToCore(tracker_task, "tracker", 4096, NULL, 5, NULL, 1);
+    xTaskCreatePinnedToCore(tracker_task, "tracker", 2048, NULL, 5, NULL, 1);
 
     while (1) {
         float v_bat = power_monitor_get_battery_voltage();
         float v_sol = power_monitor_get_solar_voltage();
-        ESP_LOGI(TAG, "Monitor: Batería: %.2f V | Panel Solar: %.2f V | Az:%d° El:%d°",
-                 v_bat, v_sol, current_az, current_el);
+        int az_err, el_err;
+        ldr_sensor_get_errors(&az_err, &el_err);
+        ESP_LOGI(TAG, "Az=%d | az_err=%d el_err=%d | Bat=%.2fV Sol=%.2fV",
+                 current_azimuth, az_err, el_err, v_bat, v_sol);
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }

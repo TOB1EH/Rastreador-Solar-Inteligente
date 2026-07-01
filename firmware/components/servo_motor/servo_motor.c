@@ -4,9 +4,8 @@
 
 static const char *TAG = "SERVO_MOTOR";
 
-// --- Configuración de Pines (Puedes cambiarlos según tu cableado real) ---
+// --- Configuración del Pin del Servo de Azimut ---
 #define SERVO_PIN_AZIMUT     18 // GPIO 18
-#define SERVO_PIN_ELEVATION  19 // GPIO 19
 
 // --- Configuración de LEDC ---
 #define SERVO_LEDC_MODE      LEDC_LOW_SPEED_MODE
@@ -56,26 +55,14 @@ void servo_motor_init(void) {
         .hpoint         = 0
     };
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel_azimut));
-    // 3. Configurar el Canal para la Elevación (Y)
-    ledc_channel_config_t ledc_channel_elevation = {
-        .speed_mode     = SERVO_LEDC_MODE,
-        .channel        = LEDC_CHANNEL_1,
-        .timer_sel      = SERVO_LEDC_TIMER,
-        .intr_type      = LEDC_INTR_DISABLE,
-        .gpio_num       = SERVO_PIN_ELEVATION,
-        .duty           = angle_to_duty(90), // Iniciar en el centro (90°)
-        .hpoint         = 0
-    };
-    ESP_ERROR_CHECK(ledc_channel_config(&ledc_channel_elevation));
+    ledc_fade_func_install(0);
 }
 
 void servo_motor_set_angle(servo_axis_t axis, int angle_degrees) {
     uint32_t duty = angle_to_duty(angle_degrees);
-    ledc_channel_t channel = (axis == SERVO_AXIS_AZIMUT) ? LEDC_CHANNEL_0 : LEDC_CHANNEL_1;
-    
-    // Actualizar el valor del PWM
-    ESP_ERROR_CHECK(ledc_set_duty(SERVO_LEDC_MODE, channel, duty));
-    ESP_ERROR_CHECK(ledc_update_duty(SERVO_LEDC_MODE, channel));
+
+    ESP_ERROR_CHECK(ledc_set_fade_with_time(SERVO_LEDC_MODE, LEDC_CHANNEL_0, duty, 40));
+    ESP_ERROR_CHECK(ledc_fade_start(SERVO_LEDC_MODE, LEDC_CHANNEL_0, LEDC_FADE_NO_WAIT));
     
     // ESP_LOGD(TAG, "Servo %d movido a %d grados (Duty: %lu)", axis, angle_degrees, duty);
 }

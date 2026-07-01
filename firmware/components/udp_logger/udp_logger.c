@@ -68,18 +68,14 @@ static void wifi_init_sta(void) {
         .sta = {
             .ssid = WIFI_SSID,
             .password = WIFI_PASS,
-            .threshold.authmode = WIFI_AUTH_WPA2_PSK,
         },
     };
-    
-    // Si la contraseña esta vacia, permitir conexion abierta
-    if (strlen(WIFI_PASS) == 0) {
-        wifi_config.sta.threshold.authmode = WIFI_AUTH_OPEN;
-    }
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
-    ESP_ERROR_CHECK(esp_wifi_start() );
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_LOGI(TAG, "WiFi iniciado, conectando a SSID: %s ...", WIFI_SSID);
 
     ESP_LOGI(TAG, "WiFi init finalizado. Conectando a SSID:%s...", WIFI_SSID);
 }
