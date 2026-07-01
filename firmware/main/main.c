@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -10,10 +11,8 @@
 static const char *TAG = "SOLAR_TRACKER";
 
 #define BATTERY_MIN_MOVE_V 3.4f
-#define AZIMUTH_STEP 3
-#define ELEVATION_STEP 1
 #define TRACK_INTERVAL_MS 50
-#define ERR_THRESHOLD 30
+#define ERR_THRESHOLD 20
 
 #define AZIMUTH_MIN 0
 #define AZIMUTH_MAX 180
@@ -22,6 +21,14 @@ static const char *TAG = "SOLAR_TRACKER";
 
 static int current_azimuth = 90;
 static int current_elevation = 135;
+
+static int proportional_step(int err, int max_step, int divisor) {
+    int abs_err = abs(err);
+    if (abs_err < ERR_THRESHOLD) return 0;
+    int step = 1 + abs_err / divisor;
+    if (step > max_step) step = max_step;
+    return step;
+}
 
 void tracker_task(void *pv) {
     bool move_azimuth = true;
@@ -33,14 +40,15 @@ void tracker_task(void *pv) {
         int bat_ok = (v_bat >= BATTERY_MIN_MOVE_V) || (v_bat < 1.0f);
 
         if (bat_ok) {
-            int err_x, err_y;
-            ldr_sensor_get_errors(&err_x, &err_y);
+            int tl, tr, bl, br;
+            ldr_sensor_get_individual(&tl, &tr, &bl, &br);
 
             if (move_azimuth) {
-                if (err_x > ERR_THRESHOLD) {
-                    current_azimuth -= AZIMUTH_STEP;
-                } else if (err_x < -ERR_THRESHOLD) {
-                    current_azimuth += AZIMUTH_STEP;
+                int err_x = (tl * 2 + bl) - (tr * 2 + br);
+                int step = proportional_step(err_x, 5, 150);
+                if (step > 0) {
+                    if (err_x > 0) current_azimuth -= step;
+                    else current_azimuth += step;
                 }
 
                 if (current_azimuth < AZIMUTH_MIN) current_azimuth = AZIMUTH_MIN;
@@ -48,10 +56,11 @@ void tracker_task(void *pv) {
 
                 servo_motor_set_angle(SERVO_AXIS_AZIMUT, current_azimuth);
             } else {
-                if (err_y > ERR_THRESHOLD) {
-                    current_elevation += ELEVATION_STEP;
-                } else if (err_y < -ERR_THRESHOLD) {
-                    current_elevation -= ELEVATION_STEP;
+                int err_y = (tl + tr) * 2 - (bl + br);
+                int step = proportional_step(err_y, 3, 150);
+                if (step > 0) {
+                    if (err_y > 0) current_elevation -= step;
+                    else current_elevation += step;
                 }
 
                 if (current_elevation < ELEVATION_MIN) current_elevation = ELEVATION_MIN;
@@ -84,11 +93,13 @@ void app_main(void) {
     while (1) {
         float v_bat = power_monitor_get_battery_voltage();
         float v_sol = power_monitor_get_solar_voltage();
-        int err_x, err_y;
-        ldr_sensor_get_errors(&err_x, &err_y);
-        ESP_LOGI(TAG, "Az=%d El=%d | err_x=%-5d err_y=%-5d | Bat=%.2fV Sol=%.2fV",
-                 current_azimuth, current_elevation,
-                 err_x, err_y, v_bat, v_sol);
+        int tl, tr, bl, br;
+        ldr_sensor_get_individual(&tl, &tr, &bl, &br);
+
+        ESP_LOGI(TAG, "Bat:%.2fV Panel:%.2fV | Az:%3d° El:%3d° | TL:%d TR:%d BL:%d BR:%d",
+                 v_bat, v_sol, current_azimuth, current_elevation,
+                 tl, tr, bl, br);
+
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
