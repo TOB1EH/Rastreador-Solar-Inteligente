@@ -18,6 +18,12 @@ void servo_motor_init(void);
  * @param angle_degrees Ángulo de 0 a 180 grados
  */
 void servo_motor_set_angle(servo_axis_t axis, int angle_degrees);
+
+void servo_motor_set_angle_blocking(servo_axis_t axis, int angle_degrees);
+
+void servo_motor_wake_and_move(servo_axis_t axis, int angle_degrees);
+
+void servo_motor_sleep(servo_axis_t axis);
 #ifdef __cplusplus
 }
 #endif
