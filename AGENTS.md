@@ -39,31 +39,41 @@ idf.py build
 - **Solución**: comprar nuevo ESP32 DevKit (ESP32-WROOM-32, CH340).
 - **Regla**: nunca conectar VIN y USB al mismo tiempo.
 
-## Current firmware (sin LDR)
-Solo monitorea voltajes (batería/panel) y sirve UDP. Sin tracker, sin LDR.
-- `main/main.c`: `power_monitor_init()` + `servo_motor_init()` + `udp_logger_init()`
-- `main/CMakeLists.txt`: `REQUIRES power_monitor servo_motor udp_logger`
-
 ## Hardware architecture (verified)
 - **Power**: 1×Li-ion 3.7V 2200mAh → TP4056 → MT3608 (Step-Up 5.0V) → VIN ESP32 and servos.
 - **Flashing**: solo USB, sin batería. **Operación**: solo batería, sin USB.
 - **Voltage sensing**: Voltage dividers using **3×10kΩ resistors per divider** (R1=20kΩ, R2=10kΩ, factor=×3). No 1µF capacitor on ADC (software 30-sample moving average at 50ms compensates).
 - **Servos**: SG90 ×2, 50Hz PWM via LEDC, 13-bit resolution, 500-2500µs pulse range.
+- **LDR wiring (ADC1)**:
+  - TL = GPIO39 → ADC_CHANNEL_3 (TOP_LEFT)
+  - TR = GPIO33 → ADC_CHANNEL_5 (TOP_RIGHT)
+  - BL = GPIO32 → ADC_CHANNEL_4 (BOT_LEFT)
+  - BR = GPIO36 → ADC_CHANNEL_0 (BOT_RIGHT)
+- **Servo wiring**:
+  - GPIO18 = SERVO_AXIS_AZIMUT (lower servo, rotation left/right)
+  - GPIO19 = SERVO_AXIS_ELEVATION (upper servo, tilt up/down)
 
 ## Component APIs
-| Component | Init | Read/Get | Notes |
-|-----------|------|----------|-------|
-| `power_monitor` | `power_monitor_init()` | `get_battery_voltage()` → float V, `get_solar_voltage()` → float V | Background task samples at 50ms, 30-sample avg |
-| `servo_motor` | `servo_motor_init()` | `set_angle(SERVO_AXIS_AZIMUT, deg)`, `set_angle(SERVO_AXIS_ELEVATION, deg)` | Blocks until duty cycle update, 0-180° |
-| `udp_logger` | `udp_logger_init()` | `udp_logger_server_task` | Pull-based architecture: ESP32 runs a UDP server on port 8080. When it receives a request (e.g. "GET"), it replies with "BAT:x.xx|SOL:y.yy". |
+| Component | Init | Read/Get/Set | Notes |
+|-----------|------|--------------|-------|
+| `power_monitor` | `power_monitor_init()` | `get_battery_voltage()` → float V, `get_solar_voltage()` → float V | Background task samples at 50ms, 30-sample avg. Exposes `adc_oneshot_unit_handle_t` via `power_monitor_get_adc_handle()` |
+| `ldr_sensor` | `ldr_sensor_init(adc_handle)` | `get_errors(&az, &el)`, `get_individual(&tl,&tr,&bl,&br)` | Background task samples at 50ms, 50/50 exponential filter. `get_errors` → err_x = avg_left - avg_right, err_y = avg_top - avg_bot |
+| `servo_motor` | `servo_motor_init()` | `set_angle(axis, deg)`, `set_angle_blocking(axis, deg)`, `wake_and_move(axis, deg)`, `sleep(axis)` | `set_angle` = smooth fade (40ms, NO_WAIT). `wake_and_move` = set duty + 100ms delay. `sleep` = duty=0. Range 0-180° |
+| `udp_logger` | `udp_logger_init()` | `udp_logger_server_task` | Pull-based UDP server on port 8080. Responds "BAT:x.xx\|SOL:y.yy" to any request |
 
-## Deferred features (Etapa 2+)
-- **LDR → Servo integration** (component `ldr_sensor` exists but not used in main.c)
-  - 4 photoresistors on ADC1, GPIOs 32, 33, 36, 39. ~200 raw-value deadzone.
-  - ADC sharing: `ldr_sensor_init(handle)` receives handle from `power_monitor_get_adc_handle()`
-  - Move one servo at a time (anti-brownout), 100ms gap between them
-  - Elevation limited 0–90°, step 1° per cycle
-- LCD 1602 I2C display
-- Cloud comm (Supabase + Telegram bot)
-- Web Dashboard (HTTP server)
-- Telegram Bot
+## Tracking logic (main.c)
+- **Errors**: `ldr_sensor_get_errors()` → err_x (horizontal) for azimuth, err_y (vertical) for elevation
+- **One servo at a time**: alternates via `move_azimuth` flag (anti-brownout)
+- **Proportional step**: step = 1 + abs(err)/150, capped at 5 (az) / 3 (el), with ERR_THRESHOLD=30
+- **Battery hysteresis**: tracking ON ≥3.5V, OFF ≤3.2V. USB fallback when v_bat < 1.0V
+- **Sleep/wake**: servo gets PWM for 100ms per move, then duty=0 to save battery
+- **Interval**: 500ms between cycles (each servo moves at most every 1000ms)
+- **Ranges**: azimuth 0-180°, elevation 95-175°
+- **Console log**: Bat, Panel, Az, El, err_x, err_y, TL, TR, BL, BR (every 2s)
+
+## Critical Context
+- ADC channels configured once at boot in `power_monitor_init()` (all 6: 2 power + 4 LDR) to prevent timeout during concurrent reads
+- LDR channel mapping is per the verified hardware wiring above — do NOT change
+- **IMPORTANT**: named `SERVO_AXIS_AZIMUT` (GPIO18) controls rotation (horizontal), `SERVO_AXIS_ELEVATION` (GPIO19) controls tilt (vertical). These names match the physical function.
+- `err_x` (horizontal imbalance) drives azimuth servo; `err_y` (vertical imbalance) drives elevation servo
+- Capacitor recommendation: 470-1000µF 25V electrolytic + 100nF ceramic close to ESP32 VIN; wiring diagram in `docs/capacitor_wiring.html`

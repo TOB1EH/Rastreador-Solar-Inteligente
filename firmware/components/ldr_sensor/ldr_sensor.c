@@ -13,10 +13,6 @@ static const char *TAG = "LDR_SENSOR";
 #define ADC_CHAN_LDR_BOT_LEFT     ADC_CHANNEL_4 // GPIO 32
 #define ADC_CHAN_LDR_BOT_RIGHT    ADC_CHANNEL_0 // GPIO 36 (VP)
 
-// #define ADC_CHAN_LDR_TOP_LEFT     ADC_CHANNEL_0 // GPIO 36
-// #define ADC_CHAN_LDR_TOP_RIGHT    ADC_CHANNEL_4 // GPIO 32
-// #define ADC_CHAN_LDR_BOT_LEFT     ADC_CHANNEL_5 // GPIO 33
-// #define ADC_CHAN_LDR_BOT_RIGHT    ADC_CHANNEL_3 // GPIO 39 (VP)
 #define SAMPLE_PERIOD_MS 50
 #define DEADZONE_THRESHOLD 0
 
@@ -32,7 +28,6 @@ static void ldr_sensor_task(void *pvParameters) {
     while (1) {
         int tl, tr, bl, br;
         
-        // Leer los 4 sensores con reintentos
         esp_err_t ret;
         int retries;
         retries = 3;
