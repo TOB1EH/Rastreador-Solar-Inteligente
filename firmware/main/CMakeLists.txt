@@ -1,3 +1,3 @@
 idf_component_register(SRCS "main.c"
                     INCLUDE_DIRS "."
-                    REQUIRES power_monitor servo_motor udp_logger ldr_sensor)
+                    REQUIRES power_monitor servo_motor udp_logger ldr_sensor web_dashboard telegram_bot)

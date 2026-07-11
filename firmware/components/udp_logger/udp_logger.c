@@ -92,6 +92,10 @@ void udp_logger_init(void) {
     wifi_init_sta();
 }
 
+void udp_logger_wait_connected(void) {
+    xEventGroupWaitBits(s_wifi_event_group, WIFI_CONNECTED_BIT, pdFALSE, pdTRUE, portMAX_DELAY);
+}
+
 void udp_logger_server_task(void *pv) {
     char rx_buffer[128];
     char tx_buffer[128];
