@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_http_client.h"
+#include "esp_crt_bundle.h"
 #include "cJSON.h"
 #include "power_monitor.h"
 #include "udp_logger.h"
@@ -24,6 +25,7 @@ static char *http_request(const char *url) {
         .url = url,
         .method = HTTP_METHOD_GET,
         .skip_cert_common_name_check = true,
+        .crt_bundle_attach = esp_crt_bundle_attach,
         .buffer_size = 1024,
         .buffer_size_tx = 256,
     };
@@ -67,6 +69,7 @@ static char *http_post(const char *url, const char *body) {
         .url = url,
         .method = HTTP_METHOD_POST,
         .skip_cert_common_name_check = true,
+        .crt_bundle_attach = esp_crt_bundle_attach,
         .buffer_size = 512,
         .buffer_size_tx = 512,
     };
@@ -77,11 +80,12 @@ static char *http_post(const char *url, const char *body) {
     int alloc = 512;
 
     esp_http_client_set_method(client, HTTP_METHOD_POST);
-    esp_http_client_set_post_field(client, body, strlen(body));
     esp_http_client_set_header(client, "Content-Type", "application/json");
 
-    esp_err_t err = esp_http_client_open(client, strlen(body));
+    int body_len = strlen(body);
+    esp_err_t err = esp_http_client_open(client, body_len);
     if (err == ESP_OK) {
+        esp_http_client_write(client, body, body_len);
         int content_len = esp_http_client_fetch_headers(client);
         if (content_len > 0) {
             alloc = content_len + 1;
@@ -108,9 +112,29 @@ static char *http_post(const char *url, const char *body) {
     return resp;
 }
 
-static void handle_command(const char *cmd, long chat_id) {
+static void json_escape(const char *in, char *out, size_t out_size) {
+    while (*in && out_size > 1) {
+        if (*in == '\n') {
+            if (out_size < 3) break;
+            *out++ = '\\';
+            *out++ = 'n';
+            out_size -= 2;
+        } else if (*in == '"' || *in == '\\') {
+            if (out_size < 3) break;
+            *out++ = '\\';
+            *out++ = *in;
+            out_size -= 2;
+        } else {
+            *out++ = *in;
+            out_size--;
+        }
+        in++;
+    }
+    *out = '\0';
+}
+
+static void handle_command(const char *cmd, double chat_id) {
     char url[512];
-    char body[256];
     char response[256];
 
     if (strcmp(cmd, "/start") == 0) {
@@ -136,12 +160,18 @@ static void handle_command(const char *cmd, long chat_id) {
     }
 
     snprintf(url, sizeof(url), "%s%s%s", API_BASE, BOT_TOKEN, SEND_MSG);
-    snprintf(body, sizeof(body), "{\"chat_id\":%ld,\"text\":\"%s\"}", chat_id, response);
+
+    char escaped[512];
+    json_escape(response, escaped, sizeof(escaped));
+    char body[1024];
+    snprintf(body, sizeof(body), "{\"chat_id\":%.0f,\"text\":\"%s\"}", chat_id, escaped);
 
     char *resp = http_post(url, body);
     if (resp) {
-        ESP_LOGD(TAG, "sendMessage response: %s", resp);
+        ESP_LOGI(TAG, "sendMessage: %s", resp);
         free(resp);
+    } else {
+        ESP_LOGE(TAG, "sendMessage: no response from Telegram");
     }
 }
 
@@ -179,11 +209,20 @@ static void process_updates(const char *json) {
         cJSON *chat_id = cJSON_GetObjectItem(chat, "id");
         if (!chat_id) continue;
 
+        cJSON *chat_type = cJSON_GetObjectItem(chat, "type");
+        const char *type_str = cJSON_IsString(chat_type) ? chat_type->valuestring : "unknown";
+        ESP_LOGI(TAG, "Update: chat_id=%.0f type=%s", chat_id->valuedouble, type_str);
+
+        if (strcmp(type_str, "private") != 0) {
+            ESP_LOGI(TAG, "Ignorando mensaje de chat no privado");
+            continue;
+        }
+
         cJSON *text = cJSON_GetObjectItem(msg, "text");
         if (!cJSON_IsString(text)) continue;
 
-        ESP_LOGI(TAG, "Comando: %s (chat: %ld)", text->valuestring, chat_id->valuedouble);
-        handle_command(text->valuestring, (long)chat_id->valuedouble);
+        ESP_LOGI(TAG, "Comando: %s (chat: %.0f)", text->valuestring, chat_id->valuedouble);
+        handle_command(text->valuestring, chat_id->valuedouble);
     }
 
     cJSON_Delete(root);
@@ -206,7 +245,7 @@ static void telegram_bot_task(void *pv) {
 
         char *resp = http_request(url);
         if (resp) {
-            ESP_LOGD(TAG, "getUpdates response: %s", resp);
+            ESP_LOGD(TAG, "getUpdates: %s", resp);
             process_updates(resp);
             free(resp);
         }

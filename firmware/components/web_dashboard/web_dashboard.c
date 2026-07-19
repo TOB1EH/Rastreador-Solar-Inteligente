@@ -89,6 +89,12 @@ static esp_err_t api_status_get_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+static esp_err_t favicon_get_handler(httpd_req_t *req) {
+    httpd_resp_set_status(req, "204 No Content");
+    httpd_resp_send(req, NULL, 0);
+    return ESP_OK;
+}
+
 static const httpd_uri_t uri_root = {
     .uri       = "/",
     .method    = HTTP_GET,
@@ -100,6 +106,13 @@ static const httpd_uri_t uri_api_status = {
     .uri       = "/api/status",
     .method    = HTTP_GET,
     .handler   = api_status_get_handler,
+    .user_ctx  = NULL
+};
+
+static const httpd_uri_t uri_favicon = {
+    .uri       = "/favicon.ico",
+    .method    = HTTP_GET,
+    .handler   = favicon_get_handler,
     .user_ctx  = NULL
 };
 
@@ -119,6 +132,7 @@ void web_dashboard_start(void) {
 
     httpd_register_uri_handler(server, &uri_root);
     httpd_register_uri_handler(server, &uri_api_status);
+    httpd_register_uri_handler(server, &uri_favicon);
 
     ESP_LOGI(TAG, "Dashboard HTTP en http://192.168.x.x:%d", DASHBOARD_PORT);
 }
