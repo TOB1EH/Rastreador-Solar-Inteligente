@@ -57,6 +57,23 @@ La radiación solar no es constante: el sol cambia de posición en azimut (horiz
 ### 2.2. Power Distribution
 
 ```
+ESP32
+├── power_monitor   → ADC batería/panel (divisor ×3, filtro 30 muestras)
+├── ldr_sensor      → 4 LDR → error azimut/elevación (zona muerta ~200)
+├── servo_motor     → 2×SG90 vía LEDC PWM (50Hz, 13-bit, 500-2500µs)
+├── udp_logger      → WiFi STA + servidor UDP pull (daemon PC consulta)
+│   └── NVS         → Credenciales WiFi persistentes entre flashes
+└── web_dashboard   → Servidor HTTP embebido (monitoreo en navegador)
+
+PC daemon_pc/
+├── monitor.py         → consulta ESP32 cada 1s, muestra voltajes
+└── configure_wifi.py  → configura WiFi del ESP32 sin recompilar
+```
+
+
+
+## Integración LDR ↔ Servos
+
 Panel Solar → TP4056 → Li-ion 3.7V → MT3608 (5.0V) → VIN ESP32 + Servos SG90
                                               └→ 3.3V (LDO interno ESP32 → LDRs)
 
@@ -326,10 +343,27 @@ python3 daemon_pc/monitor.py
 ```
 📡 [ESP32 en 192.168.18.149] -> Batería: 4.12 V  |  Panel Solar: 5.50 V
 ```
+---
+
+## 6. WiFi Configuración
+
+El ESP32 guarda las credenciales WiFi en NVS (persisten entre flashes).
+Si no hay credenciales guardadas, entra en **modo config serial** por 5 segundos
+y puede recibirlas por UART.
+
+```bash
+# Desde la PC, escanea redes disponibles y configura
+python daemon_pc/configure_wifi.py
+
+# O directamente
+python daemon_pc/configure_wifi.py --ssid "MiRed" --password "clave"
+```
+
+Ver `docs/GUIA_CONFIGURACION_WIFI.md` para más detalles.
 
 ---
 
-## 6. Compilación y Descarga
+## 7. Compilación y Descarga
 
 ```bash
 cd firmware
@@ -344,7 +378,7 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 ---
 
-## 7. Configuración via Kconfig (menuconfig)
+## 8. Configuración via Kconfig (menuconfig)
 
 El proyecto usa `menuconfig` para configurar:
 - `CONFIG_WIFI_SSID` — Nombre de red WiFi
@@ -355,7 +389,7 @@ Estos valores se definen en `Kconfig.projbuild` dentro de cada componente (si ex
 
 ---
 
-## 8. Estructura del Repositorio
+## 9. Estructura del Repositorio
 
 ```
 Rastreador_Solar_Inteligente/
@@ -393,7 +427,7 @@ Rastreador_Solar_Inteligente/
 
 ---
 
-## 9. Decisiones Técnicas y Mitigaciones
+## 10. Decisiones Técnicas y Mitigaciones
 
 | Decisión | Justificación |
 |----------|---------------|
@@ -408,7 +442,7 @@ Rastreador_Solar_Inteligente/
 
 ---
 
-## 10. Estado del Hardware
+## 11. Estado del Hardware
 
 > **⚠️ ATENCIÓN:** El ESP32 original se quemó (Junio 2026).  
 > **Causa:** Se conectó batería (MT3608 → VIN) mientras el ESP32 estaba conectado por USB.  
@@ -420,7 +454,7 @@ Rastreador_Solar_Inteligente/
 
 ---
 
-## 11. Referencias
+## 12. Referencias
 
 - **ESP-IDF Documentation:** https://docs.espressif.com/projects/esp-idf/
 - **FreeRTOS:** https://www.freertos.org/

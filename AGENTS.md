@@ -17,7 +17,8 @@ Rastreador_Solar_Inteligente/
 │   ├── sdkconfig              # set-target esp32, auto-generated
 │   └── build/                 # build artifacts (gitignored)
 ├── daemon_pc/                 # PC monitoring scripts
-│   └── monitor.py             # UDP Client (requests data from ESP32)
+│   ├── monitor.py             # UDP Client (requests data from ESP32)
+│   └── configure_wifi.py      # WiFi config via serial + sdkconfig override
 ├── docs/                      # markdown docs
 └── AGENTS.md                  # this file
 ```
@@ -59,7 +60,7 @@ idf.py build
 | `power_monitor` | `power_monitor_init()` | `get_battery_voltage()` → float V, `get_solar_voltage()` → float V | Background task samples at 50ms, 30-sample avg. Exposes `adc_oneshot_unit_handle_t` via `power_monitor_get_adc_handle()` |
 | `ldr_sensor` | `ldr_sensor_init(adc_handle)` | `get_errors(&az, &el)`, `get_individual(&tl,&tr,&bl,&br)` | Background task samples at 50ms, 50/50 exponential filter. `get_errors` → err_x = avg_left - avg_right, err_y = avg_top - avg_bot |
 | `servo_motor` | `servo_motor_init()` | `set_angle(axis, deg)`, `set_angle_blocking(axis, deg)`, `wake_and_move(axis, deg)`, `sleep(axis)` | `set_angle` = smooth fade (40ms, NO_WAIT). `wake_and_move` = set duty + 100ms delay. `sleep` = duty=0. Range 0-180° |
-| `udp_logger` | `udp_logger_init()` | `udp_logger_server_task` | Pull-based UDP server on port 8080. Responds "BAT:x.xx\|SOL:y.yy" to any request |
+| `udp_logger` | `udp_logger_init()` | `udp_logger_server_task`, `udp_logger_save_wifi(ssid, pass)` | Pull-based UDP server on port 8080. Reads WiFi creds from NVS (fallback menuconfig). Serial config mode on first boot (5s window, format `WIFI:SSID\|PASS\n`). `save_wifi` writes NVS + restarts. |
 
 ## Tracking logic (main.c)
 - **Errors**: `ldr_sensor_get_errors()` → err_x (horizontal) for azimuth, err_y (vertical) for elevation

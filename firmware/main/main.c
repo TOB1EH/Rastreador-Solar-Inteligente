@@ -8,6 +8,8 @@
 #include "servo_motor.h"
 #include "udp_logger.h"
 #include "ldr_sensor.h"
+#include "web_dashboard.h"
+#include "telegram_bot.h"
 
 static const char *TAG = "SOLAR_TRACKER";
 
@@ -92,6 +94,9 @@ void app_main(void) {
     servo_motor_init();
     ldr_sensor_init(power_monitor_get_adc_handle());
     udp_logger_init();
+
+    web_dashboard_start();
+    telegram_bot_start();
 
     servo_motor_set_angle_blocking(SERVO_AXIS_AZIMUT, current_azimuth);
     servo_motor_set_angle_blocking(SERVO_AXIS_ELEVATION, current_elevation);

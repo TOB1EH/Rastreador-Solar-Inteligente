@@ -1,0 +1,9 @@
+menu "Web Dashboard Configuration"
+
+    config WEB_DASHBOARD_PORT
+        int "HTTP Server Port"
+        default 80
+        help
+            Puerto en el que escuchara el servidor HTTP del dashboard web.
+
+endmenu

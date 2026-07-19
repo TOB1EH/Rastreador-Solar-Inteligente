@@ -100,6 +100,25 @@
 
 ---
 
+### **5. GUIA_CONFIGURACION_WIFI.md** (nueva)
+
+**Contenido:**
+- ✅ Dos métodos de configuración: script Python y modo serial manual
+- ✅ Flujo de boot: NVS → serial → menuconfig
+- ✅ Protocolo serial: `WIFI:SSID|PASSWORD\n`
+- ✅ Uso del script interactivo y no interactivo
+- ✅ Diagrama de flujo completo
+
+**Quién lo necesita:** Usuarios que necesitan cambiar la red WiFi sin recompilar
+
+**Secciones clave:**
+- Script interactivo con ejemplos
+- Configuración manual por serial
+- Cómo borrar credenciales NVS
+- Formato del protocolo serial
+
+---
+
 ## 🔄 FLUJO DE TRABAJO RECOMENDADO
 
 ### **Semana 1: Planificación**
@@ -156,6 +175,9 @@
 
 **...crear el Bot Telegram:**
 → `GUIA_SUPABASE_TELEGRAM.md` → Sección "Telegram Bot"
+
+**...configurar WiFi sin recompilar:**
+→ `GUIA_CONFIGURACION_WIFI.md` → Cualquier método
 
 **...solucionar problemas:**
 → `GUIA_IMPLEMENTACION_ESP_IDF.md` → Sección "Troubleshooting"

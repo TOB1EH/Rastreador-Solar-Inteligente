@@ -1,0 +1,15 @@
+menu "Telegram Bot Configuration"
+
+    config TELEGRAM_BOT_TOKEN
+        string "Bot Token"
+        default ""
+        help
+            Token del bot de Telegram (entregado por @BotFather).
+
+    config TELEGRAM_POLL_SECS
+        int "Polling interval (seconds)"
+        default 5
+        help
+            Intervalo de polling a la API de Telegram (minimo 1 segundo).
+
+endmenu
