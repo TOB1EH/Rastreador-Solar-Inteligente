@@ -5,22 +5,13 @@
 extern "C" {
 #endif
 
-/**
- * @brief Inicializa la conexión WiFi
- */
 void udp_logger_init(void);
 
-/**
- * @brief Bloquea hasta que WiFi esté conectado
- */
 void udp_logger_wait_connected(void);
 
-/**
- * @brief Tarea de FreeRTOS que escucha peticiones UDP en puerto 8080 y responde con los voltajes
- * 
- * @param pv Parametros de la tarea (usualmente NULL)
- */
 void udp_logger_server_task(void *pv);
+
+void udp_logger_save_wifi(const char *ssid, const char *pass);
 
 #ifdef __cplusplus
 }
