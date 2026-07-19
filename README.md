@@ -11,10 +11,30 @@ ESP32
 ├── power_monitor   → ADC batería/panel (divisor ×3, filtro 30 muestras)
 ├── ldr_sensor      → 4 LDR → error azimut/elevación (zona muerta ~200)
 ├── servo_motor     → 2×SG90 vía LEDC PWM (50Hz, 13-bit, 500-2500µs)
-└── udp_logger      → WiFi STA + servidor UDP pull (daemon PC consulta)
+├── udp_logger      → WiFi STA + servidor UDP pull (daemon PC consulta)
+│   └── NVS         → Credenciales WiFi persistentes entre flashes
+└── web_dashboard   → Servidor HTTP embebido (monitoreo en navegador)
 
-PC daemon_pc/monitor.py → consulta ESP32 cada 1s, muestra voltajes
+PC daemon_pc/
+├── monitor.py         → consulta ESP32 cada 1s, muestra voltajes
+└── configure_wifi.py  → configura WiFi del ESP32 sin recompilar
 ```
+
+## WiFi Configuración
+
+El ESP32 guarda las credenciales WiFi en NVS (persisten entre flashes).
+Si no hay credenciales guardadas, entra en **modo config serial** por 5 segundos
+y puede recibirlas por UART.
+
+```bash
+# Desde la PC, escanea redes disponibles y configura
+python daemon_pc/configure_wifi.py
+
+# O directamente
+python daemon_pc/configure_wifi.py --ssid "MiRed" --password "clave"
+```
+
+Ver `docs/GUIA_CONFIGURACION_WIFI.md` para más detalles.
 
 ## Integración LDR ↔ Servos (para el compañero)
 
