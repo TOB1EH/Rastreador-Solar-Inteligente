@@ -60,13 +60,13 @@ La radiación solar no es constante: el sol cambia de posición en azimut (horiz
 ESP32
 ├── power_monitor   → ADC batería/panel (divisor ×3, filtro 30 muestras)
 ├── ldr_sensor      → 4 LDR → error azimut/elevación (zona muerta ~200)
-├── servo_motor     → 2×SG90 vía LEDC PWM (50Hz, 13-bit, 500-2500µs)
-├── udp_logger      → WiFi STA + servidor UDP pull (daemon PC consulta)
-│   └── NVS         → Credenciales WiFi persistentes entre flashes
-└── web_dashboard   → Servidor HTTP embebido (monitoreo en navegador)
+├── servo_motor     → 2×MG90S vía LEDC PWM (50Hz, 13-bit, 500-2500µs)
+├── udp_logger      → WiFi STA + servidor UDP pull + NVS credentials
+├── web_dashboard   → Servidor HTTP embebido (monitoreo en navegador)
+└── telegram_bot    → Bot Telegram (consulta de voltajes desde cualquier lado)
 
 PC daemon_pc/
-├── monitor.py         → consulta ESP32 cada 1s, muestra voltajes
+├── monitor.py         → consulta ESP32 cada 1s (UDP), muestra voltajes
 └── configure_wifi.py  → configura WiFi del ESP32 sin recompilar
 ```
 
@@ -293,6 +293,68 @@ static int proportional_step(int err, int max_step, int divisor) {
 
 ---
 
+### 3.6. `web_dashboard` — Dashboard Web
+
+**Archivos:** `components/web_dashboard/web_dashboard.c`, `include/web_dashboard.h`
+
+**Responsabilidad:** Servidor HTTP embebido que expone una pagina web con indicadores de voltaje en tiempo real.
+
+**API:**
+| Funcion | Descripcion |
+|---------|-------------|
+| `web_dashboard_start()` | Espera WiFi, inicia servidor HTTP, registra endpoints |
+
+**Endpoints:**
+
+| Ruta | Metodo | Descripcion |
+|------|--------|-------------|
+| `/` | GET | Pagina HTML+JS con auto-refresh cada 3s |
+| `/api/status` | GET | JSON `{"battery":x.xx,"solar":y.yy}` |
+| `/favicon.ico` | GET | 204 No Content (evita error 404) |
+
+**Pagina web:**
+- Tema oscuro, dos tarjetas (bateria verde, panel amarillo)
+- Fetch periodico a `/api/status` cada 3 segundos
+- Indicador de conexion (verde/rojo)
+- Sin dependencias externas (no requiere CDN ni frameworks)
+
+**Uso:** Abrir `http://<ip-esp32>/` desde cualquier navegador en la misma red.
+
+Ver `docs/GUIA_WEB_DASHBOARD.md` para mas detalles.
+
+---
+
+### 3.7. `telegram_bot` — Bot Telegram
+
+**Archivos:** `components/telegram_bot/telegram_bot.c`, `cJSON.c`, `include/telegram_bot.h`
+
+**Responsabilidad:** Bot de Telegram que responde comandos con el estado del rastreador desde cualquier lugar con Internet.
+
+**API:**
+| Funcion | Descripcion |
+|---------|-------------|
+| `telegram_bot_start()` | Crea tarea de polling a la API de Telegram |
+
+**Comandos:**
+| Comando | Respuesta |
+|---------|-----------|
+| `/start` | Mensaje de bienvenida con lista de comandos |
+| `/status` | `Bateria: 4.12V\nPanel Solar: 5.50V` |
+| `/help` | Lista de comandos disponibles |
+
+**Arquitectura:**
+- Polling cada 5s a `api.telegram.org` via HTTPS
+- Certificate bundle de ESP-IDF (`esp_crt_bundle_attach`)
+- Solo responde a chats privados (ignora grupos)
+- Token configurable via menuconfig
+- `chat_id` de 64 bits manejado con `double` (evita truncamiento en cJSON)
+
+**Uso:** Enviar `/status` al bot desde Telegram.
+
+Ver `docs/GUIA_TELEGRAM_BOT.md` para mas detalles.
+
+---
+
 ## 4. Tareas FreeRTOS
 
 | Tarea | Función | Stack | Prioridad | Core | Período |
@@ -301,6 +363,8 @@ static int proportional_step(int err, int max_step, int divisor) {
 | `power_monitor` | `power_monitor_task` | 4096 | 5 | 1 | 50ms |
 | `ldr_sensor` | `ldr_sensor_task` | 4096 | 5 | 1 | 50ms |
 | `udp_server` | `udp_logger_server_task` | 4096 | 5 | any | — |
+| `telegram_bot` | `telegram_bot_task` | 8192 | 5 | any | 5s |
+| `httpd` | (servidor web) | 4096+ | any | any | — |
 | `main` | `app_main` loop | — | 1 | 0 | 2000ms |
 
 **Diagrama de comunicación:**
@@ -310,39 +374,53 @@ power_monitor ──→ adc1_handle ──→ ldr_sensor
       │                                │
       │ get_battery_voltage()          │ get_errors()
       │ get_solar_voltage()            │ get_individual()
-      ↓                                ↓
-   udp_logger                      tracker_task
-   (responde BAT|SOL)              (controla servos)
-                                        ↓
-                                   servo_motor
-                                   (LEDC PWM)
+      ↓          ↓          ↓          ↓
+   udp_logger  web_dash   telegram   tracker_task
+   (UDP pull)  (HTTP)     (polling)  (controla servos)
+                                         ↓
+                                    servo_motor
+                                    (LEDC PWM)
+
+PC user ←→ web_dashboard (navegador, HTTP)
+PC user ←→ telegram_bot  (Telegram API, cloud)
+PC user ←→ udp_logger    (monitor.py, UDP)
 ```
 
 > Nota: No se usan Queues FreeRTOS para la comunicación sensor→tracker. Los valores se comparten via variables globales estáticas con getters. Esto es seguro porque las escrituras son atómicas (int, float en ESP32 sin contención de cache entre cores).
 
 ---
 
-## 5. Daemon PC (monitor.py)
+## 5. Scripts PC (daemon_pc/)
 
-**Archivo:** `daemon_pc/monitor.py`
+### 5.1. `monitor.py` — Consulta UDP
 
-Script Python que consulta al ESP32 vía UDP cada 1 segundo y muestra voltajes:
+Script Python que consulta al ESP32 via UDP cada 1 segundo y muestra voltajes:
 
-```python
-# Envía "GET" a ESP32_IP:8080
-# Recibe "BAT:4.12|SOL:5.50"
-# Formatea y muestra en consola
-```
-
-**Uso:**
 ```bash
 python3 daemon_pc/monitor.py
 ```
 
 **Salida:**
 ```
-📡 [ESP32 en 192.168.18.149] -> Batería: 4.12 V  |  Panel Solar: 5.50 V
+[ESP32 en 192.168.18.149] -> Bateria: 4.12 V  |  Panel Solar: 5.50 V
 ```
+
+### 5.2. `configure_wifi.py` — Configuracion WiFi
+
+Configura las credenciales WiFi del ESP32 sin recompilar. Escanea redes desde la PC y envia las credenciales por USB serial:
+
+```bash
+# Modo interactivo (recomendado)
+python3 daemon_pc/configure_wifi.py
+
+# O directamente
+python3 daemon_pc/configure_wifi.py --ssid "MiRed" --password "clave"
+
+# Solo escribir en sdkconfig (sin serial)
+python3 daemon_pc/configure_wifi.py --no-serial
+```
+
+Ver `docs/GUIA_CONFIGURACION_WIFI.md` para mas detalles.
 ---
 
 ## 6. WiFi Configuración
@@ -380,12 +458,15 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 ## 8. Configuración via Kconfig (menuconfig)
 
-El proyecto usa `menuconfig` para configurar:
-- `CONFIG_WIFI_SSID` — Nombre de red WiFi
-- `CONFIG_WIFI_PASSWORD` — Contraseña WiFi
-- `CONFIG_UDP_BROADCAST_PORT` — Puerto UDP (default 8080)
+El proyecto usa `menuconfig` para configurar los parametros de cada componente:
 
-Estos valores se definen en `Kconfig.projbuild` dentro de cada componente (si existe) o via `sdkconfig` predeterminado.
+| Menu | Opciones | Default |
+|------|----------|---------|
+| `Telegram Bot Configuration` | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_POLL_SECS` | "", 5s |
+| `Web Dashboard Configuration` | `WEB_DASHBOARD_PORT` | 80 |
+| Componentes base (via sdkconfig) | `WIFI_SSID`, `WIFI_PASSWORD`, `UDP_BROADCAST_PORT` | — |
+
+Cada componente define sus opciones en su propio `Kconfig.projbuild`.
 
 ---
 
@@ -393,36 +474,52 @@ Estos valores se definen en `Kconfig.projbuild` dentro de cada componente (si ex
 
 ```
 Rastreador_Solar_Inteligente/
-├── firmware/                          # ESP-IDF project root
-│   ├── CMakeLists.txt                 # project() includes IDF_PATH
+├── firmware/                              # ESP-IDF project root
+│   ├── CMakeLists.txt                     # project() includes IDF_PATH
 │   ├── main/
-│   │   ├── CMakeLists.txt             # Registra main.c, requires componentes
-│   │   └── main.c                     # app_main + tracker_task
+│   │   ├── CMakeLists.txt                 # Registra main.c
+│   │   └── main.c                         # app_main + tracker_task
 │   ├── components/
-│   │   ├── power_monitor/             # ADC → battery/solar voltage
+│   │   ├── power_monitor/                 # ADC → battery/solar voltage
 │   │   │   ├── CMakeLists.txt
 │   │   │   ├── power_monitor.c
 │   │   │   └── include/power_monitor.h
-│   │   ├── ldr_sensor/                # 4×LDR → azimuth/elevation error
+│   │   ├── ldr_sensor/                    # 4×LDR → azimuth/elevation error
 │   │   │   ├── CMakeLists.txt
 │   │   │   ├── ldr_sensor.c
 │   │   │   └── include/ldr_sensor.h
-│   │   ├── servo_motor/               # 2×SG90 via LEDC PWM
+│   │   ├── servo_motor/                   # 2×MG90S via LEDC PWM
 │   │   │   ├── CMakeLists.txt
 │   │   │   ├── servo_motor.c
 │   │   │   └── include/servo_motor.h
-│   │   └── udp_logger/                # WiFi STA + UDP server (Pull)
+│   │   ├── udp_logger/                    # WiFi STA + UDP pull + NVS
+│   │   │   ├── CMakeLists.txt
+│   │   │   ├── udp_logger.c
+│   │   │   └── include/udp_logger.h
+│   │   ├── web_dashboard/                 # Servidor HTTP embebido
+│   │   │   ├── CMakeLists.txt
+│   │   │   ├── web_dashboard.c
+│   │   │   └── include/web_dashboard.h
+│   │   └── telegram_bot/                  # Bot Telegram
 │   │       ├── CMakeLists.txt
-│   │       ├── udp_logger.c
-│   │       └── include/udp_logger.h
-│   ├── sdkconfig                       # set-target esp32 (autogenerado)
-│   └── build/                          # Build artifacts (gitignored)
+│   │       ├── telegram_bot.c
+│   │       ├── cJSON.c / cJSON.h
+│   │       ├── Kconfig.projbuild
+│   │       └── include/telegram_bot.h
+│   ├── sdkconfig                           # Configuracion compilacion
+│   └── build/                              # Build artifacts (gitignored)
 ├── daemon_pc/
-│   └── monitor.py                      # UDP Client (consulta datos)
-├── docs/                               # Documentación técnica
-├── AGENTS.md                           # Guía de contexto para agentes AI
+│   ├── monitor.py                          # UDP Client (consulta datos)
+│   └── configure_wifi.py                   # Configura WiFi via serial
+├── docs/                                   # Documentacion tecnica
+│   ├── 00_INDICE_GENERAL.md
+│   ├── GUIA_CONFIGURACION_WIFI.md          # WiFi por serial + NVS
+│   ├── GUIA_TELEGRAM_BOT.md                # Bot de Telegram
+│   ├── GUIA_WEB_DASHBOARD.md               # Dashboard web
+│   └── ... (otros documentos)
+├── AGENTS.md                               # Guia para agentes AI
 ├── .gitignore
-└── README.md                           # Este archivo
+└── README.md                               # Este archivo
 ```
 
 ---
@@ -463,3 +560,6 @@ Rastreador_Solar_Inteligente/
 - **TP4056 Datasheet:** 1A Linear Li-ion Charger
 - **Supabase:** https://supabase.com/docs
 - **Telegram Bot API:** https://core.telegram.org/bots/api
+- **docs/GUIA_TELEGRAM_BOT.md** — Guia de configuracion del bot Telegram
+- **docs/GUIA_WEB_DASHBOARD.md** — Guia del dashboard web
+- **docs/GUIA_CONFIGURACION_WIFI.md** — Guia de configuracion WiFi

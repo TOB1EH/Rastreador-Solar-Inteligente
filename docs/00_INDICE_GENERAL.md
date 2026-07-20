@@ -2,7 +2,7 @@
 
 **Proyecto Integrador STR 2026**  
 **Versión:** 1.0 Completa  
-**Última actualización:** 2026-05-10
+**Última actualización:** 2026-07-20
 
 ---
 
@@ -75,53 +75,66 @@
 
 ---
 
-### **4. GUIA_SUPABASE_TELEGRAM.md** (16 KB)
+### **4. GUIA_TELEGRAM_BOT.md** (nuevo)
 
 **Contenido:**
-- ✅ ¿Qué es Supabase? (PostgreSQL cloud)
-- ✅ Crear cuenta y proyecto
-- ✅ Obtener credenciales (URL + KEY)
-- ✅ Crear tabla de datos SQL
-- ✅ Insertar datos desde ESP32
-- ✅ Crear Bot Telegram
-- ✅ Comandos disponibles
-- ✅ Código de integración
-- ✅ Dashboard Python para visualizar
+- ✅ Creacion del bot con @BotFather
+- ✅ Comandos disponibles: `/start`, `/status`, `/help`
+- ✅ Arquitectura de polling vs webhook
+- ✅ TLS y certificate bundle de ESP-IDF
+- ✅ Filtro de chats privados
+- ✅ Soporte para chat_id de 64 bits
+- ✅ Escape de caracteres en JSON
 
-**Quién lo necesita:** Desarrolladores (cloud + comunicación)
+**Quien lo necesita:** Usuarios que quieran monitorear el rastreador desde Telegram
 
 **Secciones clave:**
-- Setup Supabase paso a paso
-- SQL para crear tabla
-- Código C para HTTP POST
-- Setup Bot Telegram
-- Comandos del bot (`/status`, `/manual_90`, etc.)
-- Script Python para gráficas
+- Como crear y configurar el bot
+- Comandos y respuestas esperadas
+- Consideraciones tecnicas (TLS, 64-bit IDs, polling)
 
 ---
 
-### **5. GUIA_CONFIGURACION_WIFI.md** (nueva)
+### **5. GUIA_WEB_DASHBOARD.md** (nuevo)
 
 **Contenido:**
-- ✅ Dos métodos de configuración: script Python y modo serial manual
+- ✅ Endpoints: `/`, `/api/status`, `/favicon.ico`
+- ✅ Pagina HTML+JS con auto-refresh cada 3s
+- ✅ Tema oscuro, indicadores en tiempo real
+- ✅ Como acceder desde el navegador
+- ✅ Configuracion del puerto HTTP
+
+**Quien lo necesita:** Usuarios que quieran monitorear desde el navegador en la misma red
+
+**Secciones clave:**
+- Obtener la IP del ESP32
+- Endpoints y respuestas
+- Interfaz de usuario y JavaScript
+
+---
+
+### **6. GUIA_CONFIGURACION_WIFI.md**
+
+**Contenido:**
+- ✅ Dos metodos de configuracion: script Python y modo serial manual
 - ✅ Flujo de boot: NVS → serial → menuconfig
 - ✅ Protocolo serial: `WIFI:SSID|PASSWORD\n`
 - ✅ Uso del script interactivo y no interactivo
 - ✅ Diagrama de flujo completo
 
-**Quién lo necesita:** Usuarios que necesitan cambiar la red WiFi sin recompilar
+**Quien lo necesita:** Usuarios que necesitan cambiar la red WiFi sin recompilar
 
 **Secciones clave:**
 - Script interactivo con ejemplos
-- Configuración manual por serial
-- Cómo borrar credenciales NVS
+- Configuracion manual por serial
+- Como borrar credenciales NVS
 - Formato del protocolo serial
 
 ---
 
 ## 🔄 FLUJO DE TRABAJO RECOMENDADO
 
-### **Semana 1: Planificación**
+### **Semana 1: Planificacion**
 1. Leer `ANTEPROYECTO_RASTREADOR_SOLAR.md`
 2. Revisar lista de hardware
 3. Presentar anteproyecto a docentes ✓
@@ -137,18 +150,19 @@
 2. Implementar `servo_motor.c` (control PWM)
 3. Probar tareas individuales
 4. Integrar tareas con FreeRTOS
-5. Ver `ARQUITECTURA_TECNICA_EJE_UNICO.md` para pseudocódigo
+5. Ver documentacion tecnica para pseudocodigo
 
-### **Semana 5: Integración Cloud**
-1. Crear cuenta Supabase
-2. Crear tabla de datos
-3. Implementar `supabase_client.c`
-4. Ver `GUIA_SUPABASE_TELEGRAM.md`
+### **Semana 5: Dashboard Web**
+1. Abrir `http://<ip-esp32>` desde el navegador
+2. Verificar que los indicadores se actualizan cada 3s
+3. Ver `GUIA_WEB_DASHBOARD.md` para mas detalles
 
 ### **Semana 6: Bot Telegram**
 1. Crear Bot con @BotFather
-2. Implementar `telegram_bot.c`
-3. Probar comandos
+2. Configurar token en menuconfig
+3. Compilar y flashear
+4. Probar comandos `/start`, `/status`, `/help`
+5. Ver `GUIA_TELEGRAM_BOT.md` para mas detalles
 
 ### **Semana 7-8: Testing**
 1. Pruebas en el campo
@@ -170,14 +184,14 @@
 **...implementar lectura de sensores:**
 → `GUIA_IMPLEMENTACION_ESP_IDF.md` → Archivo `sensor_ldr.c`
 
-**...configurar Supabase:**
-→ `GUIA_SUPABASE_TELEGRAM.md` → Sección "Supabase - Base de Datos"
+**...configurar y usar el Bot Telegram:**
+→ `GUIA_TELEGRAM_BOT.md` → Cualquier seccion
 
-**...crear el Bot Telegram:**
-→ `GUIA_SUPABASE_TELEGRAM.md` → Sección "Telegram Bot"
+**...acceder al dashboard web:**
+→ `GUIA_WEB_DASHBOARD.md` → Seccion "Como Acceder"
 
 **...configurar WiFi sin recompilar:**
-→ `GUIA_CONFIGURACION_WIFI.md` → Cualquier método
+→ `GUIA_CONFIGURACION_WIFI.md` → Cualquier metodo
 
 **...solucionar problemas:**
 → `GUIA_IMPLEMENTACION_ESP_IDF.md` → Sección "Troubleshooting"
@@ -391,6 +405,7 @@ Nivel Avanzado:
 | Versión | Fecha | Cambios |
 |---------|-------|---------|
 | 1.0 | 2026-05-10 | Versión inicial completa |
+| 1.1 | 2026-07-20 | Añadidos: Dashboard Web, Bot Telegram, Configuración WiFi por serial |
 
 ---
 
